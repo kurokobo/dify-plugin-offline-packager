@@ -1,0 +1,13 @@
+# Environment
+.env
+
+# Output packages
+difypkg/*.difypkg
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS
+.DS_Store
+Thumbs.db
