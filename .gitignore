@@ -4,6 +4,9 @@
 # Output packages
 difypkg/*.difypkg
 
+# Cached CLI binaries
+bin/dify-plugin-cli-*
+
 # Python
 __pycache__/
 *.py[cod]

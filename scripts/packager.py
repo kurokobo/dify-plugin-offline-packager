@@ -37,6 +37,7 @@ DIFY_PLUGIN_DAEMON_VERSION = os.environ.get("DIFY_PLUGIN_DAEMON_VERSION", "0.5.3
 
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/difypkg"))
 WORK_DIR = Path(os.environ.get("WORK_DIR", "/tmp/packager-work"))
+BIN_DIR = Path(os.environ.get("BIN_DIR", "/dify-plugin-bin"))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -79,9 +80,11 @@ def ensure_dify_plugin_cli(work: Path) -> Path:
         sys.exit(f"Unsupported architecture: {machine}")
 
     binary_name = f"dify-plugin-linux-{arch}"
-    cached = Path("/tmp") / f"dify-plugin-cli-{DIFY_PLUGIN_DAEMON_VERSION}-{arch}"
+    BIN_DIR.mkdir(parents=True, exist_ok=True)
+    cached = BIN_DIR / f"dify-plugin-cli-{DIFY_PLUGIN_DAEMON_VERSION}-{arch}"
 
     if cached.exists():
+        print(f"✔  Using cached dify-plugin CLI ({DIFY_PLUGIN_DAEMON_VERSION}) from {cached}")
         return cached
 
     url = (

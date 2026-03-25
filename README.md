@@ -89,8 +89,8 @@ All settings can be customised via the `.env` file (or environment variables):
 ## ⚙️ How It Works
 
 1. `docker compose run` starts the official `dify-plugin-daemon` container.
-   - The entrypoint is overridden to `uv run /tool/packager.py`.
-   - `./tool/` is bind-mounted read-only; `./difypkg/` is mounted read-write.
+   - The entrypoint is overridden to `uv run /scripts/packager.py`.
+   - `./scripts/` is bind-mounted read-only; `./difypkg/` is mounted read-write.
 2. Inside the container the script:
    - Downloads the plugin (or reads a local file).
    - Saves the **original** `.difypkg` to `./difypkg/`.
