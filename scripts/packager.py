@@ -164,12 +164,12 @@ def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
 
     Steps:
       1. Inject ``environments`` and strip ``[dependency-groups]`` so that
-         ``uv lock`` only resolves production deps for Linux + current Python.
-      2. ``uv lock`` to generate / refresh uv.lock (pins exact versions).
+         ``uv lock`` only resolves production deps for the current Python version
+         (platform-agnostic).
+      2. ``uv lock --prerelease=allow`` to generate / refresh uv.lock with
+         pre-release support (pins exact versions).
       3. ``uv export --frozen --no-hashes --no-dev`` to get the pinned list.
       4. ``uv run pip download`` to fetch all wheels into ``wheels_dir``.
-      5. Delete uv.lock so the target machine re-resolves from wheels/ only
-         (``--no-index`` + ``--frozen`` is a conflicting combination in uv).
     """
     pyproject_file = extract_dir / "pyproject.toml"
 
@@ -183,7 +183,7 @@ def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
     # 2. (Re-)generate uv.lock scoped to the target environment.
     # ------------------------------------------------------------------
     print("🔐 Locking dependencies …")
-    run(["uv", "lock", "--directory", str(extract_dir)])
+    run(["uv", "lock", "--directory", str(extract_dir), "--prerelease=allow"])
 
     # ------------------------------------------------------------------
     # 3. Export the frozen dependency list (no hashes, no dev).
@@ -223,14 +223,8 @@ def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
     finally:
         exported_req.unlink(missing_ok=True)
 
-    # ------------------------------------------------------------------
-    # 5. Delete uv.lock so the target machine re-resolves from wheels/.
-    #    uv --no-index + --frozen is a conflicting combination (uv#15519).
-    # ------------------------------------------------------------------
-    uv_lock = extract_dir / "uv.lock"
-    if uv_lock.exists():
-        uv_lock.unlink()
-        print("   Ὕ1  Deleted uv.lock (target will re-resolve from wheels/).")
+    # uv.lock is preserved in the package to avoid re-resolution on target machine,
+    # which may fail for pre-release versions (e.g., gevent>=25.5.1,<25.6.dev0).
 
 
 def _inject_environments(pyproject_file: Path) -> None:
@@ -238,13 +232,13 @@ def _inject_environments(pyproject_file: Path) -> None:
     Inject only the ``environments`` key into the ``[tool.uv]`` section of
     pyproject.toml.
 
-    This is called **before** ``uv lock`` so that the lock file is scoped
-    to Linux + the current Python version only, avoiding unnecessary wheels
-    for other platforms or future Python versions.
+    This is called **before** ``uv lock`` to pin the Python version while
+    remaining platform-agnostic for cross-platform compatibility.
     """
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"  # e.g. "3.12"
     content = pyproject_file.read_text()
-    env_line = f'environments = ["sys_platform == \'linux\' and python_version == \'{py_ver}\'"]'
+    # Only constrain Python version, not platform (for cross-platform support)
+    env_line = f'environments = ["python_version == \'{py_ver}\'"]'
     uv_block = f'\n[tool.uv]\n{env_line}\n'
 
     if re.search(r'^\[tool\.uv\]', content, re.MULTILINE):
@@ -261,7 +255,7 @@ def _inject_environments(pyproject_file: Path) -> None:
         content = content.rstrip() + "\n" + uv_block
 
     pyproject_file.write_text(content)
-    print(f'   ✏  Injected environments = [linux + python {py_ver}] into pyproject.toml.')
+    print(f'   ✏  Injected environments = [python {py_ver}, platform-agnostic] into pyproject.toml.')
 
 
 def _strip_dependency_groups(pyproject_file: Path) -> None:
@@ -296,9 +290,8 @@ def _patch_pyproject_toml_offline(pyproject_file: Path) -> None:
         no-index = true
         find-links = ["./wheels/"]
 
-    uv.lock is deleted before packaging so that the target machine
-    re-resolves dependencies from wheels/ only (uv#15519: --no-index +
-    --frozen is a conflicting combination).
+    The uv.lock file is preserved in the package to avoid re-resolution
+    on the target machine, which ensures pre-release dependencies work correctly.
     """
     content = pyproject_file.read_text()
 
@@ -370,6 +363,14 @@ def package_offline(pkg_path: Path, cli: Path, work: Path) -> Path:
         shutil.rmtree(extract_dir)
     with zipfile.ZipFile(pkg_path, "r") as zf:
         zf.extractall(extract_dir)
+
+    # -- Remove any existing uv.lock from the original package --
+    #    The original lockfile may have platform-specific constraints that
+    #    prevent the plugin from running on other platforms (e.g., linux-only).
+    original_uv_lock = extract_dir / "uv.lock"
+    if original_uv_lock.exists():
+        original_uv_lock.unlink()
+        print("   ✗  Removed original uv.lock (will regenerate for cross-platform compatibility).")
 
     # -- Bundle dependencies --
     pyproject_file = extract_dir / "pyproject.toml"
