@@ -4,7 +4,6 @@
 A Docker-based tool that rebuilds [Dify](https://dify.ai) plugin packages (`.difypkg`) so they can be **installed on air-gapped / internet-disconnected Dify instances**.  
 It bundles all Python dependencies as pre-built wheels into the package.
 
-<!-- omit in toc -->
 - [✨ Why This Tool?](#-why-this-tool)
 - [✅ Prerequisites](#-prerequisites)
 - [📝 Quick Start](#-quick-start)
@@ -15,6 +14,7 @@ It bundles all Python dependencies as pre-built wheels into the package.
 - [⚙️ Configuration](#️-configuration)
 - [⚙️ How It Works](#️-how-it-works)
 - [⚙️ Dify Platform Settings](#️-dify-platform-settings)
+- [🖥️ Running Locally (without Docker)](#️-running-locally-without-docker)
 - [🙏 Acknowledgements](#-acknowledgements)
 
 ## ✨ Why This Tool?
@@ -30,9 +30,13 @@ This tool runs directly inside the **official `langgenius/dify-plugin-daemon` co
 
 ## ✅ Prerequisites
 
-- Docker host with the same CPU architecture as your Dify production environment
+- Docker host with the same CPU architecture as your containerized Dify Plugin Daemon (amd64 or arm64)
 - Docker & Docker Compose
 - Internet access (to download plugins and Python packages)
+
+> [!NOTE]
+> If you are running the Dify Plugin Daemon locally instead of as a container, you can run the packager script directly without Docker.
+> See [🖥️ Running Locally (without Docker)](#️-running-locally-without-docker) for details.
 
 ## 📝 Quick Start
 
@@ -62,7 +66,7 @@ docker compose run --rm packager --github "junjiem/dify-plugin-agent-mcp_sse:0.2
 Place the `.difypkg` file in `./difypkg/`, then run:
 
 ```bash
-docker compose run --rm packager --local "/difypkg/my-plugin.difypkg"
+docker compose run --rm packager --local "difypkg/my-plugin.difypkg"
 ```
 
 ### 📦 Output
@@ -89,8 +93,8 @@ All settings can be customised via the `.env` file (or environment variables):
 ## ⚙️ How It Works
 
 1. `docker compose run` starts the official `dify-plugin-daemon` container.
-   - The entrypoint is overridden to `uv run /scripts/packager.py`.
-   - `./scripts/` is bind-mounted read-only; `./difypkg/` is mounted read-write.
+   - The entrypoint is overridden to `uv run scripts/packager.py`.
+   - `./scripts/` is bind-mounted read-only; `./bin/` and `./difypkg/` are mounted read-write.
 2. Inside the container the script:
    - Downloads the plugin (or reads a local file).
    - Saves the **original** `.difypkg` to `./difypkg/`.
@@ -108,6 +112,12 @@ To install offline-packaged plugins, you may need to adjust these Dify `.env` se
 - `ENFORCE_LANGGENIUS_PLUGIN_SIGNATURES=false` — Allow installing unsigned official plugins.
 - `PLUGIN_MAX_PACKAGE_SIZE=524288000` — Allow plugins up to 500 MB.
 - `NGINX_CLIENT_MAX_BODY_SIZE=500M` — Raise the Nginx upload limit.
+
+## 🖥️ Running Locally (without Docker)
+
+If you are running the **Dify Plugin Daemon locally** (not as a container), you can invoke the packager script directly on your machine instead of using Docker.
+
+See **[docs/local-usage.md](docs/local-usage.md)** for the full instructions.
 
 ## 🙏 Acknowledgements
 

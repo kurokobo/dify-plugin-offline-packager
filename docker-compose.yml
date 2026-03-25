@@ -1,20 +1,17 @@
 services:
   packager:
     image: langgenius/dify-plugin-daemon:${DIFY_PLUGIN_DAEMON_VERSION:-0.5.3}-local
-    # Override the entrypoint so we run our script, not the daemon server
-    entrypoint: ["uv", "run", "/scripts/packager.py"]
-    working_dir: /scripts
+    # Override the entrypoint so we run our script, not the daemon server.
+    # working_dir is set to /packager so relative paths (bin/, difypkg/)
+    # resolve the same way inside the container and on the host.
+    entrypoint: ["uv", "run", "scripts/packager.py"]
+    working_dir: /packager
     volumes:
-      # Mount the scripts directory (read-only)
-      - ./scripts:/scripts:ro
-      # Mount the output directory (read-write)
-      - ./difypkg:/difypkg
-      # Mount the bin directory to cache the dify-plugin CLI binary across runs
-      - ./bin:/dify-plugin-bin
+      - ./scripts:/packager/scripts:ro
+      - ./bin:/packager/bin
+      - ./difypkg:/packager/difypkg
     environment:
       - MARKETPLACE_API_URL=${MARKETPLACE_API_URL:-https://marketplace.dify.ai}
       - GITHUB_API_URL=${GITHUB_API_URL:-https://github.com}
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.org/simple}
       - DIFY_PLUGIN_DAEMON_VERSION=${DIFY_PLUGIN_DAEMON_VERSION:-0.5.3}
-      - OUTPUT_DIR=/difypkg
-      - BIN_DIR=/dify-plugin-bin

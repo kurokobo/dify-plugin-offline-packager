@@ -18,6 +18,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -35,9 +36,12 @@ PIP_INDEX_URL = os.environ.get(
 )
 DIFY_PLUGIN_DAEMON_VERSION = os.environ.get("DIFY_PLUGIN_DAEMON_VERSION", "0.5.3")
 
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/difypkg"))
-WORK_DIR = Path(os.environ.get("WORK_DIR", "/tmp/packager-work"))
-BIN_DIR = Path(os.environ.get("BIN_DIR", "/dify-plugin-bin"))
+# All paths are relative to the current working directory so the script
+# works both inside the container and locally without any path changes.
+# Override individual directories via environment variables if needed.
+_cwd = Path.cwd()
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", str(_cwd / "difypkg")))
+BIN_DIR    = Path(os.environ.get("BIN_DIR",    str(_cwd / "bin")))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,7 +69,7 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
         sys.exit(f"\n❌ Command failed (exit {e.returncode}): {' '.join(e.cmd)}")
 
 
-def ensure_dify_plugin_cli(work: Path) -> Path:
+def ensure_dify_plugin_cli() -> Path:
     """
     Ensure the dify-plugin CLI binary exists and is executable.
     Downloads from GitHub releases if not already cached.
@@ -128,10 +132,10 @@ def download_github(repo: str, tag: str, asset: str, dest: Path) -> Path:
 
 
 def resolve_local(path_str: str) -> Path:
-    """Resolve a local .difypkg path (supports host-mounted paths)."""
+    """Resolve a local .difypkg path. Falls back to OUTPUT_DIR if not found as-is."""
     p = Path(path_str)
     if not p.exists():
-        # Try under the mounted /difypkg directory
+        # Also look under OUTPUT_DIR (e.g. user passed just the filename)
         alt = OUTPUT_DIR / p.name
         if alt.exists():
             return alt
@@ -488,32 +492,32 @@ Examples:
 
     args = parser.parse_args()
 
-    # -- Prepare workspace --
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    cli = ensure_dify_plugin_cli()
 
-    cli = ensure_dify_plugin_cli(WORK_DIR)
+    with tempfile.TemporaryDirectory(prefix="packager-work-") as _tmp:
+        work = Path(_tmp)
 
-    # -- Acquire the .difypkg --
-    if args.marketplace:
-        author, name, version = parse_marketplace_shorthand(args.marketplace)
-        pkg_path = download_marketplace(author, name, version, WORK_DIR)
+        # -- Acquire the .difypkg --
+        if args.marketplace:
+            author, name, version = parse_marketplace_shorthand(args.marketplace)
+            pkg_path = download_marketplace(author, name, version, work)
 
-    elif args.github:
-        repo, tag, asset = parse_github_shorthand(args.github)
-        pkg_path = download_github(repo, tag, asset, WORK_DIR)
+        elif args.github:
+            repo, tag, asset = parse_github_shorthand(args.github)
+            pkg_path = download_github(repo, tag, asset, work)
 
-    elif args.local:
-        pkg_path = resolve_local(args.local)
+        elif args.local:
+            pkg_path = resolve_local(args.local)
 
-    # -- Copy original to output dir --
-    original_dest = OUTPUT_DIR / pkg_path.name
-    if pkg_path != original_dest and not original_dest.exists():
-        shutil.copy2(pkg_path, original_dest)
-        print(f"📄 Original saved → {original_dest}")
+        # -- Copy original to output dir --
+        original_dest = OUTPUT_DIR / pkg_path.name
+        if pkg_path != original_dest and not original_dest.exists():
+            shutil.copy2(pkg_path, original_dest)
+            print(f"📄 Original saved → {original_dest}")
 
-    # -- Package for offline use --
-    package_offline(pkg_path, cli, WORK_DIR)
+        # -- Package for offline use --
+        package_offline(pkg_path, cli, work)
 
 
 if __name__ == "__main__":
