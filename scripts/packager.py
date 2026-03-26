@@ -6,8 +6,8 @@ Downloads a Dify plugin (from Marketplace, GitHub, or local file),
 bundles its Python dependencies as wheels, and packages it as an
 offline-ready .difypkg file.
 
-Runs inside the official langgenius/dify-plugin-daemon container
-which ships with uv and Python 3.12. All operations use uv.
+Can run inside the official langgenius/dify-plugin-daemon container
+or directly on the host (Linux, macOS, Windows). Requires uv.
 """
 
 import argparse
@@ -18,6 +18,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -35,9 +36,12 @@ PIP_INDEX_URL = os.environ.get(
 )
 DIFY_PLUGIN_DAEMON_VERSION = os.environ.get("DIFY_PLUGIN_DAEMON_VERSION", "0.5.3")
 
-OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", "/difypkg"))
-WORK_DIR = Path(os.environ.get("WORK_DIR", "/tmp/packager-work"))
-BIN_DIR = Path(os.environ.get("BIN_DIR", "/dify-plugin-bin"))
+# All paths are relative to the current working directory so the script
+# works both inside the container and locally without any path changes.
+# Override individual directories via environment variables if needed.
+_cwd = Path.cwd()
+OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", str(_cwd / "difypkg")))
+BIN_DIR    = Path(os.environ.get("BIN_DIR",    str(_cwd / "bin")))
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,11 +69,16 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
         sys.exit(f"\n❌ Command failed (exit {e.returncode}): {' '.join(e.cmd)}")
 
 
-def ensure_dify_plugin_cli(work: Path) -> Path:
+def ensure_dify_plugin_cli() -> Path:
     """
     Ensure the dify-plugin CLI binary exists and is executable.
     Downloads from GitHub releases if not already cached.
     Returns the path to the binary.
+
+    Supported platforms:
+      - Linux   : dify-plugin-linux-{arch}
+      - macOS   : dify-plugin-darwin-{arch}
+      - Windows : dify-plugin-windows-{arch}.exe
     """
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
@@ -79,9 +88,22 @@ def ensure_dify_plugin_cli(work: Path) -> Path:
     else:
         sys.exit(f"Unsupported architecture: {machine}")
 
-    binary_name = f"dify-plugin-linux-{arch}"
+    system = platform.system().lower()  # 'linux', 'darwin', 'windows'
+    if system == "linux":
+        os_name = "linux"
+        suffix = ""
+    elif system == "darwin":
+        os_name = "darwin"
+        suffix = ""
+    elif system == "windows":
+        os_name = "windows"
+        suffix = ".exe"
+    else:
+        sys.exit(f"Unsupported OS: {platform.system()}")
+
+    binary_name = f"dify-plugin-{os_name}-{arch}{suffix}"
     BIN_DIR.mkdir(parents=True, exist_ok=True)
-    cached = BIN_DIR / f"dify-plugin-cli-{DIFY_PLUGIN_DAEMON_VERSION}-{arch}"
+    cached = BIN_DIR / f"dify-plugin-cli-{DIFY_PLUGIN_DAEMON_VERSION}-{os_name}-{arch}{suffix}"
 
     if cached.exists():
         print(f"✔  Using cached dify-plugin CLI ({DIFY_PLUGIN_DAEMON_VERSION}) from {cached}")
@@ -94,7 +116,8 @@ def ensure_dify_plugin_cli(work: Path) -> Path:
     print(f"⬇  Downloading dify-plugin CLI ({DIFY_PLUGIN_DAEMON_VERSION}) …")
     print(f"   {url}")
     download_file(url, str(cached))
-    cached.chmod(cached.stat().st_mode | stat.S_IEXEC)
+    if system != "windows":
+        cached.chmod(cached.stat().st_mode | stat.S_IEXEC)
     print("   Done.")
     return cached
 
@@ -128,10 +151,10 @@ def download_github(repo: str, tag: str, asset: str, dest: Path) -> Path:
 
 
 def resolve_local(path_str: str) -> Path:
-    """Resolve a local .difypkg path (supports host-mounted paths)."""
+    """Resolve a local .difypkg path. Falls back to OUTPUT_DIR if not found as-is."""
     p = Path(path_str)
     if not p.exists():
-        # Try under the mounted /difypkg directory
+        # Also look under OUTPUT_DIR (e.g. user passed just the filename)
         alt = OUTPUT_DIR / p.name
         if alt.exists():
             return alt
@@ -144,18 +167,22 @@ def resolve_local(path_str: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _download_wheels_pip(req_file: Path, wheels_dir: Path) -> None:
-    """Download wheels using pip based on requirements.txt."""
+def _pip_download_cmd(req_file: Path, wheels_dir: Path) -> list[str]:
+    """Build the base `uv run python -m pip download` command."""
     cmd = [
-        "uv", "run", "pip", "download",
+        "uv", "run", "python", "-m", "pip", "download",
         "-r", str(req_file),
         "-d", str(wheels_dir),
     ]
     if PIP_INDEX_URL:
         cmd += ["--index-url", PIP_INDEX_URL]
+    return cmd
 
+
+def _download_wheels_pip(req_file: Path, wheels_dir: Path) -> None:
+    """Download wheels using pip based on requirements.txt."""
     print("⬇  Downloading Python dependencies …")
-    run(cmd)
+    run(_pip_download_cmd(req_file, wheels_dir))
 
 
 def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
@@ -164,10 +191,10 @@ def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
 
     Steps:
       1. Inject ``environments`` and strip ``[dependency-groups]`` so that
-         ``uv lock`` only resolves production deps for Linux + current Python.
+         ``uv lock`` only resolves production deps for the current OS + Python.
       2. ``uv lock`` to generate / refresh uv.lock (pins exact versions).
       3. ``uv export --frozen --no-hashes --no-dev`` to get the pinned list.
-      4. ``uv run pip download`` to fetch all wheels into ``wheels_dir``.
+      4. ``uv run python -m pip download`` to fetch all wheels into ``wheels_dir``.
       5. Delete uv.lock so the target machine re-resolves from wheels/ only
          (``--no-index`` + ``--frozen`` is a conflicting combination in uv).
     """
@@ -211,15 +238,8 @@ def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
     exported_req = extract_dir / "_exported_requirements.txt"
     exported_req.write_text(export_result.stdout)
     try:
-        cmd = [
-            "uv", "run", "pip", "download",
-            "-r", str(exported_req),
-            "-d", str(wheels_dir),
-        ]
-        if PIP_INDEX_URL:
-            cmd += ["--index-url", PIP_INDEX_URL]
         print("⬇  Downloading Python dependencies …")  # step 4
-        run(cmd)
+        run(_pip_download_cmd(exported_req, wheels_dir))
     finally:
         exported_req.unlink(missing_ok=True)
 
@@ -239,12 +259,19 @@ def _inject_environments(pyproject_file: Path) -> None:
     pyproject.toml.
 
     This is called **before** ``uv lock`` so that the lock file is scoped
-    to Linux + the current Python version only, avoiding unnecessary wheels
-    for other platforms or future Python versions.
+    to the current OS (linux / darwin / win32) + Python version only,
+    avoiding unnecessary wheels for other platforms or future Python versions.
     """
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"  # e.g. "3.12"
+    _sys = platform.system().lower()
+    if _sys == "darwin":
+        sys_platform = "darwin"
+    elif _sys == "windows":
+        sys_platform = "win32"
+    else:
+        sys_platform = "linux"
     content = pyproject_file.read_text()
-    env_line = f'environments = ["sys_platform == \'linux\' and python_version == \'{py_ver}\'"]'
+    env_line = f'environments = ["sys_platform == \'{sys_platform}\' and python_version == \'{py_ver}\'"]'
     uv_block = f'\n[tool.uv]\n{env_line}\n'
 
     if re.search(r'^\[tool\.uv\]', content, re.MULTILINE):
@@ -261,7 +288,7 @@ def _inject_environments(pyproject_file: Path) -> None:
         content = content.rstrip() + "\n" + uv_block
 
     pyproject_file.write_text(content)
-    print(f'   ✏  Injected environments = [linux + python {py_ver}] into pyproject.toml.')
+    print(f'   ✏  Injected environments = [{sys_platform} + python {py_ver}] into pyproject.toml.')
 
 
 def _strip_dependency_groups(pyproject_file: Path) -> None:
@@ -357,7 +384,7 @@ def package_offline(pkg_path: Path, cli: Path, work: Path) -> Path:
     Package a .difypkg with bundled wheels for offline use.
 
     1. Unzip the package
-    2. Lock dependencies and download all wheels (via uv lock + uv pip download)
+    2. Lock dependencies and download all wheels (via uv lock + uv run python -m pip download)
     3. Patch pyproject.toml or requirements.txt for offline use
     4. Re-pack using the dify-plugin CLI
     """
@@ -488,32 +515,32 @@ Examples:
 
     args = parser.parse_args()
 
-    # -- Prepare workspace --
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    cli = ensure_dify_plugin_cli()
 
-    cli = ensure_dify_plugin_cli(WORK_DIR)
+    with tempfile.TemporaryDirectory(prefix="packager-work-") as _tmp:
+        work = Path(_tmp)
 
-    # -- Acquire the .difypkg --
-    if args.marketplace:
-        author, name, version = parse_marketplace_shorthand(args.marketplace)
-        pkg_path = download_marketplace(author, name, version, WORK_DIR)
+        # -- Acquire the .difypkg --
+        if args.marketplace:
+            author, name, version = parse_marketplace_shorthand(args.marketplace)
+            pkg_path = download_marketplace(author, name, version, work)
 
-    elif args.github:
-        repo, tag, asset = parse_github_shorthand(args.github)
-        pkg_path = download_github(repo, tag, asset, WORK_DIR)
+        elif args.github:
+            repo, tag, asset = parse_github_shorthand(args.github)
+            pkg_path = download_github(repo, tag, asset, work)
 
-    elif args.local:
-        pkg_path = resolve_local(args.local)
+        elif args.local:
+            pkg_path = resolve_local(args.local)
 
-    # -- Copy original to output dir --
-    original_dest = OUTPUT_DIR / pkg_path.name
-    if pkg_path != original_dest and not original_dest.exists():
-        shutil.copy2(pkg_path, original_dest)
-        print(f"📄 Original saved → {original_dest}")
+        # -- Copy original to output dir --
+        original_dest = OUTPUT_DIR / pkg_path.name
+        if pkg_path != original_dest and not original_dest.exists():
+            shutil.copy2(pkg_path, original_dest)
+            print(f"📄 Original saved → {original_dest}")
 
-    # -- Package for offline use --
-    package_offline(pkg_path, cli, WORK_DIR)
+        # -- Package for offline use --
+        package_offline(pkg_path, cli, work)
 
 
 if __name__ == "__main__":
