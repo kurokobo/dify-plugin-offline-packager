@@ -99,8 +99,8 @@ All settings can be customised via the `.env` file (or environment variables):
    - Downloads the plugin (or reads a local file).
    - Saves the **original** `.difypkg` to `./difypkg/`.
    - Detects whether the plugin uses `pyproject.toml` or `requirements.txt`:
-     - **pyproject.toml** — injects `environments` (Linux + current Python) and removes `[dependency-groups]` from `pyproject.toml`, runs `uv lock` to pin exact versions, exports the pinned list via `uv export`, downloads wheels via `uv run pip download`, patches the `[tool.uv]` section with `no-index = true` and `find-links = ["./wheels/"]`, then deletes `uv.lock` (required because `--no-index` and `--frozen` are conflicting options in uv).
-     - **requirements.txt** — downloads wheels via `uv run pip download`, then prepends `--no-index --find-links=./wheels/`.
+     - **pyproject.toml** — injects `environments` (current OS + Python) and removes `[dependency-groups]` from `pyproject.toml`, runs `uv lock` to pin exact versions, exports the pinned list via `uv export`, downloads wheels via `uv run python -m pip download`, patches the `[tool.uv]` section with `no-index = true` and `find-links = ["./wheels/"]`, then deletes `uv.lock` (required because `--no-index` and `--frozen` are conflicting options in uv).
+     - **requirements.txt** — downloads wheels via `uv run python -m pip download`, then prepends `--no-index --find-links=./wheels/`.
    - Downloads the `dify-plugin` CLI binary from GitHub (cached across runs).
    - Repacks the plugin with `dify-plugin plugin package`.
 
