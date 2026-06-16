@@ -210,7 +210,10 @@ def _download_wheels_uv(extract_dir: Path, wheels_dir: Path) -> None:
     # 2. (Re-)generate uv.lock scoped to the target environment.
     # ------------------------------------------------------------------
     print("🔐 Locking dependencies …")
-    run(["uv", "lock", "--directory", str(extract_dir)])
+    lock_cmd = ["uv", "lock", "--directory", str(extract_dir)]
+    if PIP_INDEX_URL:
+        lock_cmd += ["--index-url", PIP_INDEX_URL]
+    run(lock_cmd)
 
     # ------------------------------------------------------------------
     # 3. Export the frozen dependency list (no hashes, no dev).
