@@ -66,7 +66,7 @@ docker compose run --rm packager --github "junjiem/dify-plugin-agent-mcp_sse:0.2
 Place the `.difypkg` file in `./difypkg/`, then run:
 
 ```bash
-docker compose run --rm packager --local "difypkg/my-plugin.difypkg"
+docker compose run --rm packager --local "my-plugin.difypkg"
 ```
 
 ### 📦 Output
@@ -85,7 +85,7 @@ All settings can be customised via the `.env` file (or environment variables):
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `DIFY_PLUGIN_DAEMON_VERSION` | `0.5.3` | Docker image tag for the official daemon image. Also used to download the `dify-plugin` CLI binary. |
+| `DIFY_PLUGIN_DAEMON_VERSION` | `0.6.1` | Docker image tag for the official daemon image. Also used to download the `dify-plugin` CLI binary. |
 | `MARKETPLACE_API_URL` | `https://marketplace.dify.ai` | Dify Marketplace API URL |
 | `GITHUB_API_URL` | `https://github.com` | GitHub URL (set for GitHub Enterprise) |
 | `PIP_INDEX_URL` | `https://pypi.org/simple` | PyPI mirror URL (e.g. `https://mirrors.aliyun.com/pypi/simple` for Chinese users) |

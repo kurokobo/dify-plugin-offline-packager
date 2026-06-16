@@ -34,7 +34,7 @@ GITHUB_API_URL = os.environ.get("GITHUB_API_URL", "https://github.com")
 PIP_INDEX_URL = os.environ.get(
     "PIP_INDEX_URL", "https://pypi.org/simple"
 )
-DIFY_PLUGIN_DAEMON_VERSION = os.environ.get("DIFY_PLUGIN_DAEMON_VERSION", "0.5.3")
+DIFY_PLUGIN_DAEMON_VERSION = os.environ.get("DIFY_PLUGIN_DAEMON_VERSION", "0.6.1")
 
 # All paths are relative to the current working directory so the script
 # works both inside the container and locally without any path changes.

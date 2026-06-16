@@ -54,7 +54,7 @@ Settings can be provided as environment variables (same as the Docker-based work
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `DIFY_PLUGIN_DAEMON_VERSION` | `0.5.3` | Version of the `dify-plugin` CLI binary to download. Should match your locally running Plugin Daemon. |
+| `DIFY_PLUGIN_DAEMON_VERSION` | `0.6.1` | Version of the `dify-plugin` CLI binary to download. Should match your locally running Plugin Daemon. |
 | `MARKETPLACE_API_URL` | `https://marketplace.dify.ai` | Dify Marketplace API URL |
 | `GITHUB_API_URL` | `https://github.com` | GitHub URL (set for GitHub Enterprise) |
 | `PIP_INDEX_URL` | `https://pypi.org/simple` | PyPI mirror URL |
